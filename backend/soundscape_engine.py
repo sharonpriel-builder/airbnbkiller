@@ -121,7 +121,7 @@ else:
                         st.session_state["last_generated_audio"] = audio_bytes
                         
                     # 3. Create a clean, ultra-short link for the QR Code (No limit errors!)
-                    base_url = "https://twinroute.streamlit.app" 
+                    base_url = "https://airbnbkiller.streamlit.app" 
                     guest_link = f"{base_url}/?view=guest&host={host_name}"
                     
                     # 4. Generate QR Code (Using version 1 to 40 safely)
