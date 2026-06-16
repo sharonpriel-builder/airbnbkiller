@@ -158,7 +158,7 @@ else:
                         public_audio_url = upload_to_github(audio_bytes, clean_filename)
                         
                     # 4. Create dynamic link for the QR Code
-                    base_url = "https://twinroute.streamlit.app" 
+                    base_url = "https://airbnbkiller.streamlit.app" 
                     guest_link = f"{base_url}/?view=guest&host={host_name}&audio={public_audio_url}"
                     
                     # 5. Generate QR Code
