@@ -3,7 +3,6 @@ import streamlit as st
 from openai import OpenAI
 import qrcode
 import io
-import base64
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -13,14 +12,18 @@ load_dotenv()
 openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_key)
 
+# Initialize Session State to hold the audio data globally on the server memory
+if "global_audio_store" not in st.session_state:
+    st.session_state["global_audio_store"] = {}
+
 def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) -> str:
     system_prompt = (
         "You are an expert luxury Airbnb hospitality manager. Your job is to look at a property image "
         "and write a welcoming, high-end audio guide script for the check-in experience. "
         "The tone should be cool, warm, welcoming, and hyper-local. Write it entirely in ENGLISH. "
-        "Include: A welcome message from the host, a description of the villa/apartment vibe, "
+        "Include: A welcome message from the host, a description of the vibe, "
         "2-3 secret local recommendations in the neighborhood (cafes/bars), and a polite reminder to keep the place clean. "
-        "Keep it very concise and short, around 80-100 words maximum so it fits perfectly."
+        "Keep it concise, around 100-120 words maximum."
     )
     
     response = openai_client.chat.completions.create(
@@ -29,13 +32,13 @@ def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) 
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": [
+                "content=[
                     {"type": "text", "text": f"The host name is {host_name}, location is {city}. Write the script in English."},
                     {"type": "image_url", "image_url": {"url": image_url}}
                 ]
             }
         ],
-        max_tokens=250
+        max_tokens=300
     )
     return response.choices[0].message.content
 
@@ -47,6 +50,7 @@ def generate_audio_guide_openai(script: str) -> bytes:
     )
     return response.content
 
+
 # --- DYNAMIC ROUTING VIA QUERY PARAMETERS ---
 query_params = st.query_params
 
@@ -57,26 +61,24 @@ if "view" in query_params and query_params["view"] == "guest":
     st.set_page_config(page_title="Welcome to Your Stay", page_icon="🔑", layout="centered")
     
     host = query_params.get("host", "Your Host")
+    host_key = host.lower().strip()
     
     st.markdown("<h1 style='text-align: center; margin-top: 50px;'>✨ Welcome to Your Stay!</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; color: #aaa; font-size: 1.2rem;'>A special audio welcome guide from <b>{host}</b></p>", unsafe_allow_html=True)
     st.write("---")
     
-    # Secret Hack: We pull the actual audio directly out of the URL state!
-    if "audio" in st.session_state:
+    # Retrieve the audio from the application memory state
+    if host_key in st.session_state["global_audio_store"]:
+        audio_bytes = st.session_state["global_audio_store"][host_key]
         st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
-        st.audio(st.session_state["audio"], format="audio/mp3")
-    elif "audio_b64" in query_params:
-        try:
-            audio_b64 = query_params["audio_b64"]
-            # Decode the audio directly from the QR code URL text!
-            audio_bytes = base64.b64decode(audio_b64.encode('utf-8'))
-            st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
-            st.audio(audio_bytes, format="audio/mp3")
-        except Exception as e:
-            st.error("Could not decode audio from QR link.")
+        st.audio(audio_bytes, format="audio/mp3")
     else:
-        st.warning("No audio guide found. Please scan the QR code again.")
+        # Fallback to the last generated audio if any exists
+        if "last_generated_audio" in st.session_state:
+            st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
+            st.audio(st.session_state["last_generated_audio"], format="audio/mp3")
+        else:
+            st.warning("No live audio guide found. Please ask your host to generate a new QR code.")
         
     st.markdown("<p style='text-align: center; color: #555; margin-top: 100px; font-size: 0.8rem;'>Powered by Soundscape AI</p>", unsafe_allow_html=True)
 
@@ -113,20 +115,17 @@ else:
                         audio_bytes = generate_audio_guide_openai(script)
                         st.audio(audio_bytes, format="audio/mp3")
                         
-                        # Save in session state for instant local testing
-                        st.session_state["audio"] = audio_bytes
+                        # Store it in memory for the guest to fetch
+                        host_key = host_name.lower().strip()
+                        st.session_state["global_audio_store"][host_key] = audio_bytes
+                        st.session_state["last_generated_audio"] = audio_bytes
                         
-                    # 3. Compress audio into Base64 Text
-                    audio_encoded = base64.b64encode(audio_bytes).decode('utf-8')
-                    
-                    # 4. Link to your app
+                    # 3. Create a clean, ultra-short link for the QR Code (No limit errors!)
                     base_url = "https://twinroute.streamlit.app" 
+                    guest_link = f"{base_url}/?view=guest&host={host_name}"
                     
-                    # We inject the data directly into the link
-                    guest_link = f"{base_url}/?view=guest&host={host_name}&audio_b64={audio_encoded}"
-                    
-                    # 5. Generate QR Code
-                    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=4, border=4)
+                    # 4. Generate QR Code (Using version 1 to 40 safely)
+                    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
                     qr.add_data(guest_link)
                     qr.make(fit=True)
                     qr_img = qr.make_image(fill_color="black", back_color="white")
@@ -136,7 +135,7 @@ else:
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
                     
-                    # 6. Show QR Code to Host
+                    # 5. Show QR Code to Host
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
                     st.image(qr_bytes, caption="Scan this with your phone to test the guest experience!", width=250)
