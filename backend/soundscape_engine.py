@@ -16,8 +16,8 @@ openai_client = OpenAI(api_key=openai_key)
 # GitHub Storage Configuration
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or st.secrets.get("GITHUB_TOKEN")
 # Change these to match your exact GitHub details!
-REPO_OWNER = "sharon-priel"  # שם המשתמש שלך בגיטהאב
-REPO_NAME = "twinroute"      # שם הרפו שלך
+REPO_OWNER = "sharonpriel-builder"  # שם המשתמש שלך בגיטהאב
+REPO_NAME = "airbnbkiller"      # שם הרפו שלך
 
 def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) -> str:
     system_prompt = (
