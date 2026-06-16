@@ -3,21 +3,19 @@ import streamlit as st
 from openai import OpenAI
 import qrcode
 import io
-import requests
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI API client
+# Initialize OpenAI API client safely
 openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_key)
 
-# GitHub Storage Configuration
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or st.secrets.get("GITHUB_TOKEN")
-# Change these to match your exact GitHub details!
-REPO_OWNER = "sharonpriel-builder"  # שם המשתמש שלך בגיטהאב
-REPO_NAME = "airbnbkiller"      # שם הרפו שלך
+# Create a local folder on the Streamlit server to hold audio files if it doesn't exist
+AUDIO_DIR = "static_audio"
+if not os.path.exists(AUDIO_DIR):
+    os.makedirs(AUDIO_DIR)
 
 def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) -> str:
     system_prompt = (
@@ -53,47 +51,6 @@ def generate_audio_guide_openai(script: str) -> bytes:
     )
     return response.content
 
-def upload_to_github(audio_bytes: bytes, filename: str) -> str:
-    """
-    Uploads the MP3 file directly into your GitHub repository under an 'audio_store' folder
-    and returns its public, raw un-hashed live URL.
-    """
-    import base64
-    if not GITHUB_TOKEN:
-        raise Exception("GitHub Token missing from configuration.")
-        
-    path = f"audio_store/{filename}"
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
-    
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    # Check if file already exists to get its SHA (needed for updating/overwriting)
-    sha = None
-    existing_res = requests.get(url, headers=headers)
-    if existing_res.status_code == 200:
-        sha = existing_res.json().get("sha")
-
-    # Encode binary audio to base64 for GitHub API
-    content_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-    
-    data = {
-        "message": f"Upload welcome audio guide: {filename}",
-        "content": content_b64
-    }
-    if sha:
-        data["sha"] = sha
-        
-    res = requests.put(url, headers=headers, json=data)
-    if res.status_code not in [200, 201]:
-        raise Exception(f"GitHub Upload Failed: {res.json().get('message')}")
-        
-    # Construct the raw dynamic cdn link that anyone can stream directly
-    raw_url = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{path}"
-    return raw_url
-
 
 # --- DYNAMIC ROUTING VIA QUERY PARAMETERS ---
 query_params = st.query_params
@@ -105,17 +62,26 @@ if "view" in query_params and query_params["view"] == "guest":
     st.set_page_config(page_title="Welcome to Your Stay", page_icon="🔑", layout="centered")
     
     host = query_params.get("host", "Your Host")
-    audio_url = query_params.get("audio", None)
+    filename = query_params.get("file", None)
     
     st.markdown("<h1 style='text-align: center; margin-top: 50px;'>✨ Welcome to Your Stay!</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; color: #aaa; font-size: 1.2rem;'>A special audio welcome guide from <b>{host}</b></p>", unsafe_allow_html=True)
     st.write("---")
     
-    if audio_url:
-        st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
-        st.audio(audio_url, format="audio/mp3")
+    # Try to load the file from the local server storage
+    if filename:
+        file_path = os.path.join(AUDIO_DIR, filename)
+        if os.path.exists(file_path):
+            st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
+            
+            # Read and stream the file directly to the guest's phone
+            with open(file_path, "rb") as f:
+                audio_bytes = f.read()
+            st.audio(audio_bytes, format="audio/mp3")
+        else:
+            st.error("The audio file has expired or was not found. Please ask the host to re-generate the QR code.")
     else:
-        st.warning("No audio guide found in this link.")
+        st.warning("No audio guide reference found in this link.")
         
     st.markdown("<p style='text-align: center; color: #555; margin-top: 100px; font-size: 0.8rem;'>Powered by Soundscape AI</p>", unsafe_allow_html=True)
 
@@ -152,14 +118,17 @@ else:
                         audio_bytes = generate_audio_guide_openai(script)
                         st.audio(audio_bytes, format="audio/mp3")
                         
-                    # 3. Upload directly to GitHub Storage
-                    with st.spinner("☁️ Archiving audio file into GitHub live repository..."):
-                        clean_filename = f"{host_name.lower().strip().replace(' ', '_')}_guide.mp3"
-                        public_audio_url = upload_to_github(audio_bytes, clean_filename)
+                    # 3. Save file locally on the Streamlit Server disk
+                    clean_host = host_name.lower().strip().replace(' ', '_')
+                    filename = f"{clean_host}_guide.mp3"
+                    file_path = os.path.join(AUDIO_DIR, filename)
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(audio_bytes)
                         
-                    # 4. Create dynamic link for the QR Code
-                    base_url = "https://airbnbkiller.streamlit.app" 
-                    guest_link = f"{base_url}/?view=guest&host={host_name}&audio={public_audio_url}"
+                    # 4. Create dynamic clean link pointing to the local server file
+                    base_url = "https://twinroute.streamlit.app" 
+                    guest_link = f"{base_url}/?view=guest&host={host_name}&file={filename}"
                     
                     # 5. Generate QR Code
                     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
