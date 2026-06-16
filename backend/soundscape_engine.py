@@ -127,7 +127,7 @@ else:
                         f.write(audio_bytes)
                         
                     # 4. Create dynamic clean link pointing to the local server file
-                    base_url = "https://twinroute.streamlit.app" 
+                    base_url = "https://airbnbkiller-8ih343gqgj5auvybmfusrj.streamlit.app" 
                     guest_link = f"{base_url}/?view=guest&host={host_name}&file={filename}"
                     
                     # 5. Generate QR Code
