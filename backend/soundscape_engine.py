@@ -20,7 +20,7 @@ def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) 
         "The tone should be cool, warm, welcoming, and hyper-local. Write it entirely in ENGLISH. "
         "Include: A welcome message from the host, a description of the villa/apartment vibe, "
         "2-3 secret local recommendations in the neighborhood (cafes/bars), and a polite reminder to keep the place clean. "
-        "Keep it concise, around 120-150 words maximum."
+        "Keep it very concise and short, around 80-100 words maximum so it fits perfectly."
     )
     
     response = openai_client.chat.completions.create(
@@ -35,7 +35,7 @@ def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) 
                 ]
             }
         ],
-        max_tokens=400
+        max_tokens=250
     )
     return response.choices[0].message.content
 
@@ -48,7 +48,6 @@ def generate_audio_guide_openai(script: str) -> bytes:
     return response.content
 
 # --- DYNAMIC ROUTING VIA QUERY PARAMETERS ---
-# Checking if the URL has ?view=guest (e.g., when scanning the QR code)
 query_params = st.query_params
 
 if "view" in query_params and query_params["view"] == "guest":
@@ -57,38 +56,38 @@ if "view" in query_params and query_params["view"] == "guest":
     # ==========================================
     st.set_page_config(page_title="Welcome to Your Stay", page_icon="🔑", layout="centered")
     
-    # Extract host name and audio data from the URL parameters
     host = query_params.get("host", "Your Host")
-    audio_base64 = query_params.get("audio", None)
     
     st.markdown("<h1 style='text-align: center; margin-top: 50px;'>✨ Welcome to Your Stay!</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; color: #aaa; font-size: 1.2rem;'>A special audio welcome guide from <b>{host}</b></p>", unsafe_allow_html=True)
     st.write("---")
     
-    if audio_base64:
+    # Secret Hack: We pull the actual audio directly out of the URL state!
+    if "audio" in st.session_state:
+        st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
+        st.audio(st.session_state["audio"], format="audio/mp3")
+    elif "audio_b64" in query_params:
         try:
-            # Decode the audio bytes back from the URL
-            audio_bytes = base64.b64decode(audio_base64.encode('utf-8'))
-            
-            # Big beautiful player container
+            audio_b64 = query_params["audio_b64"]
+            # Decode the audio directly from the QR code URL text!
+            audio_bytes = base64.b64decode(audio_b64.encode('utf-8'))
             st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
             st.audio(audio_bytes, format="audio/mp3")
-            
         except Exception as e:
-            st.error("Could not load the audio guide. Please contact your host.")
+            st.error("Could not decode audio from QR link.")
     else:
-        st.warning("No audio guide found in this link.")
+        st.warning("No audio guide found. Please scan the QR code again.")
         
     st.markdown("<p style='text-align: center; color: #555; margin-top: 100px; font-size: 0.8rem;'>Powered by Soundscape AI</p>", unsafe_allow_html=True)
 
 else:
     # ==========================================
-    # 🛠️ HOST DASHBOARD (מסך המארח - הרגיל)
+    # 🛠️ HOST DASHBOARD (מסך המארח)
     # ==========================================
     st.set_page_config(page_title="Soundscape AI Generator", page_icon="🎙️", layout="centered")
     
     st.title("🎙️ Soundscape AI Generator")
-    st.subheader("Create premium welcome guides & QR codes for your guests")
+    st.subheader("Create premium welcome guides & QR codes instantly")
     
     host_name = st.text_input("Host Name", value="Tomer")
     city = st.text_input("Location / Neighborhood", value="Tel Aviv")
@@ -100,7 +99,7 @@ else:
         
     if st.button("Generate Soundscape & QR ✨", type="primary"):
         if not openai_key:
-            st.error("OpenAI API Key missing!")
+            st.error("OpenAI API Key missing! Please configure it in Streamlit Secrets.")
         else:
             with st.spinner("🤖 AI is analyzing image and writing script..."):
                 try:
@@ -114,23 +113,25 @@ else:
                         audio_bytes = generate_audio_guide_openai(script)
                         st.audio(audio_bytes, format="audio/mp3")
                         
-                    # 3. Compress audio to text (Base64) to inject it directly into the QR code link
+                        # Save in session state for instant local testing
+                        st.session_state["audio"] = audio_bytes
+                        
+                    # 3. Compress audio into Base64 Text
                     audio_encoded = base64.b64encode(audio_bytes).decode('utf-8')
                     
-                    # 4. Get current App URL dynamically in Streamlit (removes hardcoding!)
-                    # For local testing it will be localhost, on cloud it will be your share.streamlit.app URL
-                    base_url = "https://airbnbkiller-nkyyoqvspdn6u6vroeynqd.streamlit.app/" # <--- שים פה את הלינק האמיתי של האפליקציה שלך בסטרימליט ענן!
+                    # 4. Link to your app
+                    base_url = "https://twinroute.streamlit.app" 
                     
-                    # Build the dynamic guest link containing the audio inside the link itself!
-                    guest_link = f"{base_url}/?view=guest&host={host_name}&audio={audio_encoded[:2000]}" # Note: long audio might exceed URL limits, for MVP short script is fine
+                    # We inject the data directly into the link
+                    guest_link = f"{base_url}/?view=guest&host={host_name}&audio_b64={audio_encoded}"
                     
                     # 5. Generate QR Code
-                    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-                    qr.add_data(f"{base_url}/?view=guest&host={host_name}") # For perfect stability, link just to the view and host, or full link
+                    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=4, border=4)
+                    qr.add_data(guest_link)
                     qr.make(fit=True)
                     qr_img = qr.make_image(fill_color="black", back_color="white")
                     
-                    # Convert QR to bytes for Streamlit display
+                    # Convert QR to bytes
                     qr_buf = io.BytesIO()
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
@@ -138,9 +139,8 @@ else:
                     # 6. Show QR Code to Host
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
-                    st.image(qr_bytes, caption="Print this and put it inside the apartment", width=250)
+                    st.image(qr_bytes, caption="Scan this with your phone to test the guest experience!", width=250)
                     
-                    # Download Button for QR
                     st.download_button(
                         label="Download QR Code PNG 💾",
                         data=qr_bytes,
