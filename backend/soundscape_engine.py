@@ -32,7 +32,7 @@ def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) 
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content=[
+                "content": [  # <-- התיקון כאן: תוקן מ- "content=[
                     {"type": "text", "text": f"The host name is {host_name}, location is {city}. Write the script in English."},
                     {"type": "image_url", "image_url": {"url": image_url}}
                 ]
