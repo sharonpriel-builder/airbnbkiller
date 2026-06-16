@@ -3,18 +3,21 @@ import streamlit as st
 from openai import OpenAI
 import qrcode
 import io
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI API client safely
+# Initialize OpenAI API client
 openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_key)
 
-# Initialize Session State to hold the audio data globally on the server memory
-if "global_audio_store" not in st.session_state:
-    st.session_state["global_audio_store"] = {}
+# GitHub Storage Configuration
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or st.secrets.get("GITHUB_TOKEN")
+# Change these to match your exact GitHub details!
+REPO_OWNER = "sharon-priel"  # שם המשתמש שלך בגיטהאב
+REPO_NAME = "twinroute"      # שם הרפו שלך
 
 def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) -> str:
     system_prompt = (
@@ -32,7 +35,7 @@ def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) 
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": [  # <-- התיקון כאן: תוקן מ- "content=[
+                "content": [
                     {"type": "text", "text": f"The host name is {host_name}, location is {city}. Write the script in English."},
                     {"type": "image_url", "image_url": {"url": image_url}}
                 ]
@@ -50,6 +53,47 @@ def generate_audio_guide_openai(script: str) -> bytes:
     )
     return response.content
 
+def upload_to_github(audio_bytes: bytes, filename: str) -> str:
+    """
+    Uploads the MP3 file directly into your GitHub repository under an 'audio_store' folder
+    and returns its public, raw un-hashed live URL.
+    """
+    import base64
+    if not GITHUB_TOKEN:
+        raise Exception("GitHub Token missing from configuration.")
+        
+    path = f"audio_store/{filename}"
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
+    
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # Check if file already exists to get its SHA (needed for updating/overwriting)
+    sha = None
+    existing_res = requests.get(url, headers=headers)
+    if existing_res.status_code == 200:
+        sha = existing_res.json().get("sha")
+
+    # Encode binary audio to base64 for GitHub API
+    content_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    
+    data = {
+        "message": f"Upload welcome audio guide: {filename}",
+        "content": content_b64
+    }
+    if sha:
+        data["sha"] = sha
+        
+    res = requests.put(url, headers=headers, json=data)
+    if res.status_code not in [200, 201]:
+        raise Exception(f"GitHub Upload Failed: {res.json().get('message')}")
+        
+    # Construct the raw dynamic cdn link that anyone can stream directly
+    raw_url = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{path}"
+    return raw_url
+
 
 # --- DYNAMIC ROUTING VIA QUERY PARAMETERS ---
 query_params = st.query_params
@@ -61,24 +105,17 @@ if "view" in query_params and query_params["view"] == "guest":
     st.set_page_config(page_title="Welcome to Your Stay", page_icon="🔑", layout="centered")
     
     host = query_params.get("host", "Your Host")
-    host_key = host.lower().strip()
+    audio_url = query_params.get("audio", None)
     
     st.markdown("<h1 style='text-align: center; margin-top: 50px;'>✨ Welcome to Your Stay!</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; color: #aaa; font-size: 1.2rem;'>A special audio welcome guide from <b>{host}</b></p>", unsafe_allow_html=True)
     st.write("---")
     
-    # Retrieve the audio from the application memory state
-    if host_key in st.session_state["global_audio_store"]:
-        audio_bytes = st.session_state["global_audio_store"][host_key]
+    if audio_url:
         st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
-        st.audio(audio_bytes, format="audio/mp3")
+        st.audio(audio_url, format="audio/mp3")
     else:
-        # Fallback to the last generated audio if any exists
-        if "last_generated_audio" in st.session_state:
-            st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
-            st.audio(st.session_state["last_generated_audio"], format="audio/mp3")
-        else:
-            st.warning("No live audio guide found. Please ask your host to generate a new QR code.")
+        st.warning("No audio guide found in this link.")
         
     st.markdown("<p style='text-align: center; color: #555; margin-top: 100px; font-size: 0.8rem;'>Powered by Soundscape AI</p>", unsafe_allow_html=True)
 
@@ -115,16 +152,16 @@ else:
                         audio_bytes = generate_audio_guide_openai(script)
                         st.audio(audio_bytes, format="audio/mp3")
                         
-                        # Store it in memory for the guest to fetch
-                        host_key = host_name.lower().strip()
-                        st.session_state["global_audio_store"][host_key] = audio_bytes
-                        st.session_state["last_generated_audio"] = audio_bytes
+                    # 3. Upload directly to GitHub Storage
+                    with st.spinner("☁️ Archiving audio file into GitHub live repository..."):
+                        clean_filename = f"{host_name.lower().strip().replace(' ', '_')}_guide.mp3"
+                        public_audio_url = upload_to_github(audio_bytes, clean_filename)
                         
-                    # 3. Create a clean, ultra-short link for the QR Code (No limit errors!)
-                    base_url = "https://airbnbkiller.streamlit.app" 
-                    guest_link = f"{base_url}/?view=guest&host={host_name}"
+                    # 4. Create dynamic link for the QR Code
+                    base_url = "https://twinroute.streamlit.app" 
+                    guest_link = f"{base_url}/?view=guest&host={host_name}&audio={public_audio_url}"
                     
-                    # 4. Generate QR Code (Using version 1 to 40 safely)
+                    # 5. Generate QR Code
                     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
                     qr.add_data(guest_link)
                     qr.make(fit=True)
@@ -135,7 +172,7 @@ else:
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
                     
-                    # 5. Show QR Code to Host
+                    # 6. Show QR Code to Host
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
                     st.image(qr_bytes, caption="Scan this with your phone to test the guest experience!", width=250)
