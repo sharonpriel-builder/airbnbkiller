@@ -105,7 +105,7 @@ else:
     image_url = st.text_input("Airbnb Listing Image URL", value="https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?q=80&w=1000&auto=format&fit=crop")
     
     if image_url:
-        try: st.image(image_url, caption="Property Preview", use_column_width=True)
+        try: st.image(image_url, caption="Property Preview", use_container_width=True)
         except: st.warning("Could not load image preview.")
         
     if st.button("Generate Soundscape & QR ✨", type="primary"):
