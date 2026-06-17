@@ -1,25 +1,34 @@
 import os
 import streamlit as st
-from openai import OpenAI
+from google import genai
+from gtts import gTTS
 import qrcode
 import io
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI API client safely
-openai_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-openai_client = OpenAI(api_key=openai_key)
+# Initialize Gemini API client safely
+gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+if gemini_key:
+    # Using the modern 2026 Google GenAI SDK
+    ai_client = genai.Client(api_key=gemini_key)
+else:
+    ai_client = None
 
-# Create a local folder on the Streamlit server to hold audio files if it doesn't exist
+# Create local folder for audio files
 AUDIO_DIR = "static_audio"
 if not os.path.exists(AUDIO_DIR):
     os.makedirs(AUDIO_DIR)
 
-def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) -> str:
+def analyze_listing_with_gemini(image_url: str, host_name: str, city: str) -> str:
+    if not ai_client:
+        raise Exception("Gemini API Key is missing.")
+        
     system_prompt = (
-        "You are an expert luxury Airbnb hospitality manager. Your job is to look at a property image "
+        "You are an expert luxury Airbnb hospitality manager. Look at this property image "
         "and write a welcoming, high-end audio guide script for the check-in experience. "
         "The tone should be cool, warm, welcoming, and hyper-local. Write it entirely in ENGLISH. "
         "Include: A welcome message from the host, a description of the vibe, "
@@ -27,29 +36,31 @@ def analyze_listing_and_write_script(image_url: str, host_name: str, city: str) 
         "Keep it concise, around 100-120 words maximum."
     )
     
-    response = openai_client.chat.completions.create(
-        model="gpt-4o", 
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"The host name is {host_name}, location is {city}. Write the script in English."},
-                    {"type": "image_url", "image_url": {"url": image_url}}
-                ]
-            }
-        ],
-        max_tokens=300
-    )
-    return response.choices[0].message.content
+    # Download the image bytes from the URL to pass to Gemini
+    try:
+        img_response = requests.get(image_url)
+        img_bytes = img_response.content
+    except Exception as e:
+        raise Exception(f"Failed to fetch image from URL: {e}")
 
-def generate_audio_guide_openai(script: str) -> bytes:
-    response = openai_client.audio.speech.create(
-        model="tts-1",           
-        voice="nova",            
-        input=script
+    # Call Gemini 1.5 Flash (Perfect, fast and free for multimodal tasks)
+    response = ai_client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=[
+            system_prompt,
+            f"Host Name: {host_name}, Location: {city}.",
+            genai.types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
+        ]
     )
-    return response.content
+    return response.text
+
+def generate_audio_gtts(script: str) -> bytes:
+    # Completely free TTS engine via Google Translate voice infrastructure
+    tts = gTTS(text=script, lang='en', tld='com', slow=False)
+    fp = io.BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return fp.read()
 
 
 # --- DYNAMIC ROUTING VIA QUERY PARAMETERS ---
@@ -68,22 +79,17 @@ if "view" in query_params and query_params["view"] == "guest":
     st.markdown(f"<p style='text-align: center; color: #aaa; font-size: 1.2rem;'>A special audio welcome guide from <b>{host}</b></p>", unsafe_allow_html=True)
     st.write("---")
     
-    # Try to load the file from the local server storage
     if filename:
         file_path = os.path.join(AUDIO_DIR, filename)
         if os.path.exists(file_path):
             st.markdown("<p style='text-align: center; font-weight: bold;'>Press play to listen to your guide:</p>", unsafe_allow_html=True)
-            
-            # Read and stream the file directly to the guest's phone
             with open(file_path, "rb") as f:
                 audio_bytes = f.read()
             st.audio(audio_bytes, format="audio/mp3")
         else:
-            st.error("The audio file has expired or was not found. Please ask the host to re-generate the QR code.")
+            st.error("Audio guide file not found on server.")
     else:
-        st.warning("No audio guide reference found in this link.")
-        
-    st.markdown("<p style='text-align: center; color: #555; margin-top: 100px; font-size: 0.8rem;'>Powered by Soundscape AI</p>", unsafe_allow_html=True)
+        st.warning("No audio guide found.")
 
 else:
     # ==========================================
@@ -91,8 +97,8 @@ else:
     # ==========================================
     st.set_page_config(page_title="Soundscape AI Generator", page_icon="🎙️", layout="centered")
     
-    st.title("🎙️ Soundscape AI Generator")
-    st.subheader("Create premium welcome guides & QR codes instantly")
+    st.title("🎙️ Soundscape AI (Gemini Edition) 🚀")
+    st.subheader("Create 100% free welcome guides instantly")
     
     host_name = st.text_input("Host Name", value="Tomer")
     city = st.text_input("Location / Neighborhood", value="Tel Aviv")
@@ -103,22 +109,22 @@ else:
         except: st.warning("Could not load image preview.")
         
     if st.button("Generate Soundscape & QR ✨", type="primary"):
-        if not openai_key:
-            st.error("OpenAI API Key missing! Please configure it in Streamlit Secrets.")
+        if not gemini_key:
+            st.error("Gemini API Key missing! Please configure GEMINI_API_KEY in Streamlit Secrets.")
         else:
-            with st.spinner("🤖 AI is analyzing image and writing script..."):
+            with st.spinner("🤖 Gemini is analyzing image and writing script..."):
                 try:
-                    # 1. Generate Script
-                    script = analyze_listing_and_write_script(image_url, host_name, city)
-                    st.success("📝 Script generated!")
+                    # 1. Generate Script via Gemini
+                    script = analyze_listing_with_gemini(image_url, host_name, city)
+                    st.success("📝 Script generated by Gemini!")
                     st.text_area("Review Script", value=script, height=150)
                     
-                    # 2. Generate Audio
-                    with st.spinner("🎙️ Synthesizing premium audio..."):
-                        audio_bytes = generate_audio_guide_openai(script)
+                    # 2. Generate Audio via free gTTS
+                    with st.spinner("🎙️ Synthesizing free google audio..."):
+                        audio_bytes = generate_audio_gtts(script)
                         st.audio(audio_bytes, format="audio/mp3")
                         
-                    # 3. Save file locally on the Streamlit Server disk
+                    # 3. Save file locally on the server
                     clean_host = host_name.lower().strip().replace(' ', '_')
                     filename = f"{clean_host}_guide.mp3"
                     file_path = os.path.join(AUDIO_DIR, filename)
@@ -126,7 +132,7 @@ else:
                     with open(file_path, "wb") as f:
                         f.write(audio_bytes)
                         
-                    # 4. Create dynamic clean link pointing to the local server file
+                    # 4. Create dynamic link pointing to your actual live server
                     base_url = "https://airbnbkiller-8ih343gqgj5auvybmfusrj.streamlit.app" 
                     guest_link = f"{base_url}/?view=guest&host={host_name}&file={filename}"
                     
@@ -136,15 +142,14 @@ else:
                     qr.make(fit=True)
                     qr_img = qr.make_image(fill_color="black", back_color="white")
                     
-                    # Convert QR to bytes
                     qr_buf = io.BytesIO()
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
                     
-                    # 6. Show QR Code to Host
+                    # 6. Show QR Code
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
-                    st.image(qr_bytes, caption="Scan this with your phone to test the guest experience!", width=250)
+                    st.image(qr_bytes, caption="Scan this with your phone!", width=250)
                     
                     st.download_button(
                         label="Download QR Code PNG 💾",
