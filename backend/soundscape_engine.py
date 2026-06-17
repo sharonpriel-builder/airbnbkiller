@@ -12,7 +12,7 @@ load_dotenv()
 
 # Initialize Gemini API client safely
 # We pull from secrets/env, and fallback to your direct Google AI Studio key as a secure workaround
-gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY") or "AQ.Ab8RN6JMIWS1h1AbZtj4bdh8H4515sGVnrdKW8yrhD_bsvGpHA"
+gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY") or "AQ.Ab8RN6J6C92ZmQOBynDY5IWvntDA0PC9No1m09Q4bEEpKFiazg"
 
 if gemini_key:
     # Using the modern Google GenAI SDK with the validated API key
