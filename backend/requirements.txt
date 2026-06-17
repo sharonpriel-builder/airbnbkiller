@@ -1,6 +1,6 @@
-openai
 python-dotenv
 pydantic
 streamlit
 qrcode
 google-genai
+gTTS
