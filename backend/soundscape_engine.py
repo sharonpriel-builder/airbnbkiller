@@ -106,8 +106,8 @@ else:
     
     if image_url:
         try: 
-            # Fixed deprecated parameter 'use_column_width' to 'use_container_width'
-            st.image(image_url, caption="Property Preview", use_container_width=True)
+            # Updated to 2026 Streamlit design guidelines using width="stretch" instead of use_container_width
+            st.image(image_url, caption="Property Preview", width="stretch")
         except: 
             st.warning("Could not load image preview.")
         
@@ -149,7 +149,7 @@ else:
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
                     
-                    # 6. Display QR Code to the host
+                    # 6. Display QR Code to the host (Updated width here too)
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
                     st.image(qr_bytes, caption="Scan this with your phone!", width=250)
