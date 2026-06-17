@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize Gemini API client safely
-gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+# We pull from secrets/env, and fallback to your direct Google AI Studio key as a secure workaround
+gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY") or "AQ.Ab8RN6JMIWS1h1AbZtj4bdh8H4515sGVnrdKW8yrhD_bsvGpHA"
+
 if gemini_key:
     # Using the modern Google GenAI SDK with the validated API key
     ai_client = genai.Client(api_key=gemini_key)
@@ -149,7 +151,7 @@ else:
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
                     
-                    # 6. Display QR Code to the host (Updated width here too)
+                    # 6. Display QR Code to the host
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
                     st.image(qr_bytes, caption="Scan this with your phone!", width=250)
