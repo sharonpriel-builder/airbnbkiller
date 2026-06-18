@@ -1,33 +1,28 @@
 import os
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 from gtts import gTTS
 import qrcode
 import io
 import requests
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (for local development)
+# Load environment variables
 load_dotenv()
 
-# Initialize Gemini API client safely
-# We pull from secrets/env, and fallback to your direct Google AI Studio key as a secure workaround
-gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY") or "AQ.Ab8RN6J6C92ZmQOBynDY5IWvntDA0PC9No1m09Q4bEEpKFiazg"
-
+# Initialize Gemini API client safely using the core library
+gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 if gemini_key:
-    # Using the modern Google GenAI SDK with the validated API key
-    ai_client = genai.Client(api_key=gemini_key)
-else:
-    ai_client = None
+    genai.configure(api_key=gemini_key)
 
-# Create local directory for caching generated audio files
+# Create local folder for audio files
 AUDIO_DIR = "static_audio"
 if not os.path.exists(AUDIO_DIR):
     os.makedirs(AUDIO_DIR)
 
 def analyze_listing_with_gemini(image_url: str, host_name: str, city: str) -> str:
-    if not ai_client:
-        raise Exception("Gemini API Key is missing.")
+    if not gemini_key:
+        raise Exception("Gemini API Key is missing from configuration.")
         
     system_prompt = (
         "You are an expert luxury Airbnb hospitality manager. Look at this property image "
@@ -38,26 +33,29 @@ def analyze_listing_with_gemini(image_url: str, host_name: str, city: str) -> st
         "Keep it concise, around 100-120 words maximum."
     )
     
-    # Download the image bytes from the URL to pass to Gemini
+    # Download the image bytes from the URL
     try:
         img_response = requests.get(image_url)
         img_bytes = img_response.content
     except Exception as e:
         raise Exception(f"Failed to fetch image from URL: {e}")
 
-    # Call Gemini 2.5 Flash (Optimized for fast API-key multimodal requests)
-    response = ai_client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=[
-            system_prompt,
-            f"Host Name: {host_name}, Location: {city}.",
-            genai.types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
-        ]
-    )
+    # Use the highly stable generativeai core model structure
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Prepare the multimodal payload
+    image_part = {
+        "mime_type": "image/jpeg",
+        "data": img_bytes
+    }
+    
+    prompt_payload = f"{system_prompt}\n\nHost Name: {host_name}, Location: {city}."
+    
+    response = model.generate_content([prompt_payload, image_part])
     return response.text
 
 def generate_audio_gtts(script: str) -> bytes:
-    # Completely free TTS engine via Google Translate voice infrastructure
+    # 100% free TTS engine
     tts = gTTS(text=script, lang='en', tld='com', slow=False)
     fp = io.BytesIO()
     tts.write_to_fp(fp)
@@ -70,7 +68,7 @@ query_params = st.query_params
 
 if "view" in query_params and query_params["view"] == "guest":
     # ==========================================
-    # 🎉 GUEST LANDING PAGE (Guest Interface)
+    # 🎉 GUEST LANDING PAGE (מסך האורח)
     # ==========================================
     st.set_page_config(page_title="Welcome to Your Stay", page_icon="🔑", layout="centered")
     
@@ -95,11 +93,11 @@ if "view" in query_params and query_params["view"] == "guest":
 
 else:
     # ==========================================
-    # 🛠️ HOST DASHBOARD (Host Interface)
+    # 🛠️ HOST DASHBOARD (מסך המארח)
     # ==========================================
     st.set_page_config(page_title="Soundscape AI Generator", page_icon="🎙️", layout="centered")
     
-    st.title("🎙️ Soundscape AI 🚀")
+    st.title("🎙️ Soundscape AI (Gemini Edition) 🚀")
     st.subheader("Create 100% free welcome guides instantly")
     
     host_name = st.text_input("Host Name", value="Tomer")
@@ -107,11 +105,8 @@ else:
     image_url = st.text_input("Airbnb Listing Image URL", value="https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?q=80&w=1000&auto=format&fit=crop")
     
     if image_url:
-        try: 
-            # Updated to 2026 Streamlit design guidelines using width="stretch" instead of use_container_width
-            st.image(image_url, caption="Property Preview", width="stretch")
-        except: 
-            st.warning("Could not load image preview.")
+        try: st.image(image_url, caption="Property Preview", use_column_width=True)
+        except: st.warning("Could not load image preview.")
         
     if st.button("Generate Soundscape & QR ✨", type="primary"):
         if not gemini_key:
@@ -119,7 +114,7 @@ else:
         else:
             with st.spinner("🤖 Gemini is analyzing image and writing script..."):
                 try:
-                    # 1. Generate Script via Gemini 2.5 Flash
+                    # 1. Generate Script via Gemini
                     script = analyze_listing_with_gemini(image_url, host_name, city)
                     st.success("📝 Script generated by Gemini!")
                     st.text_area("Review Script", value=script, height=150)
@@ -137,11 +132,11 @@ else:
                     with open(file_path, "wb") as f:
                         f.write(audio_bytes)
                         
-                    # 4. Create dynamic link pointing to your live Streamlit Cloud server
+                    # 4. Create dynamic link pointing to your actual live server
                     base_url = "https://airbnbkiller-8ih343gqgj5auvybmfusrj.streamlit.app" 
                     guest_link = f"{base_url}/?view=guest&host={host_name}&file={filename}"
                     
-                    # 5. Generate QR Code containing the guest link
+                    # 5. Generate QR Code
                     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
                     qr.add_data(guest_link)
                     qr.make(fit=True)
@@ -151,7 +146,7 @@ else:
                     qr_img.save(qr_buf, format="PNG")
                     qr_bytes = qr_buf.getvalue()
                     
-                    # 6. Display QR Code to the host
+                    # 6. Show QR Code
                     st.write("---")
                     st.subheader("🖨️ Your Guest Welcome QR Code is Ready!")
                     st.image(qr_bytes, caption="Scan this with your phone!", width=250)
