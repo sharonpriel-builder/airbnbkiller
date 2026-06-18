@@ -102,7 +102,7 @@ else:
     # ==========================================
     st.set_page_config(page_title="Soundscape AI Generator", page_icon="🎙️", layout="centered")
     
-    st.title("🎙️ Soundscape AI (Gemini Edition) 🚀")
+    st.title("🎙️ Soundscape AI 🚀")
     st.subheader("Create 100% free welcome guides instantly")
     
     host_name = st.text_input("Host Name", value="Tomer")
