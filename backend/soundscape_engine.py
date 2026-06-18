@@ -1,6 +1,7 @@
 import os
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from gtts import gTTS
 import qrcode
 import io
@@ -10,10 +11,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Initialize Gemini API client safely using the core library
+# Initialize Gemini API client correctly for a standard API Key
 gemini_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 if gemini_key:
-    genai.configure(api_key=gemini_key)
+    # Passing the api_key directly here prevents the OAuth2/Access Token error
+    ai_client = genai.Client(api_key=gemini_key)
+else:
+    ai_client = None
 
 # Create local folder for audio files
 AUDIO_DIR = "static_audio"
@@ -21,7 +25,7 @@ if not os.path.exists(AUDIO_DIR):
     os.makedirs(AUDIO_DIR)
 
 def analyze_listing_with_gemini(image_url: str, host_name: str, city: str) -> str:
-    if not gemini_key:
+    if not ai_client:
         raise Exception("Gemini API Key is missing from configuration.")
         
     system_prompt = (
@@ -36,22 +40,20 @@ def analyze_listing_with_gemini(image_url: str, host_name: str, city: str) -> st
     # Download the image bytes from the URL
     try:
         img_response = requests.get(image_url)
+        img_response.raise_for_status()
         img_bytes = img_response.content
     except Exception as e:
         raise Exception(f"Failed to fetch image from URL: {e}")
 
-    # Use the highly stable generativeai core model structure
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    # Prepare the multimodal payload
-    image_part = {
-        "mime_type": "image/jpeg",
-        "data": img_bytes
-    }
-    
-    prompt_payload = f"{system_prompt}\n\nHost Name: {host_name}, Location: {city}."
-    
-    response = model.generate_content([prompt_payload, image_part])
+    # Using the updated, long-term supported gemini-2.5-flash model
+    response = ai_client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=[
+            system_prompt,
+            f"Host Name: {host_name}, Location: {city}.",
+            types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
+        ]
+    )
     return response.text
 
 def generate_audio_gtts(script: str) -> bytes:
