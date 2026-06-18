@@ -34,7 +34,10 @@ def analyze_listing_with_gemini(image_url: str, host_name: str, city: str) -> st
         "The tone should be cool, warm, welcoming, and hyper-local. Write it entirely in ENGLISH. "
         "Include: A welcome message from the host, a description of the vibe, "
         "2-3 secret local recommendations in the neighborhood (cafes/bars), and a polite reminder to keep the place clean. "
-        "Keep it concise, around 100-120 words maximum."
+        "Keep it concise, around 100-120 words maximum. "
+        "CRITICAL: Write ONLY words that should be spoken out loud. Do NOT include any sound effects, "
+        "stage directions, music cues, or text inside brackets like (Sound of music) or [Ambient music]. "
+        "The script must be 100% pure spoken text."
     )
     
     # Download the image bytes from the URL
