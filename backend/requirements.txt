@@ -2,5 +2,6 @@ python-dotenv
 pydantic
 streamlit
 qrcode
-google-generativeai
-gTTS
+google-genai
+gtts
+requests
